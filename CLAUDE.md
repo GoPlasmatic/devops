@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is the Plasmatic DevOps repository that maintains GitHub Action workflows for releasing Rust crates across multiple GoPlasmatic repositories. The primary purpose is to provide consistent, automated release processes for all maintained libraries and applications.
+This is the Plasmatic DevOps repository that provides a centralized, reusable workflow system for releasing Rust crates across GoPlasmatic repositories. It uses GitHub's reusable workflow feature to maintain a single source of truth for release logic.
 
 ## Repository Structure
 
@@ -12,13 +12,13 @@ This is the Plasmatic DevOps repository that maintains GitHub Action workflows f
 devops/
 ├── .github/
 │   └── workflows/
-│       ├── rust-library-release.yml      # Base template for Rust library releases
-│       ├── swiftmtmessage-release.yml    # SwiftMTMessage library workflow
-│       ├── mxmessage-release.yml         # MXMessage library workflow
-│       ├── dataflow-rs-release.yml       # dataflow-rs library workflow
-│       ├── datalogic-rs-release.yml      # datalogic-rs library workflow
-│       ├── datafake-rs-release.yml       # datafake-rs library workflow
-│       └── reframe-release.yml           # Reframe application workflow
+│       ├── rust-release-reusable.yml     # Core reusable workflow with all logic
+│       ├── release-*.yml                 # Simple trigger workflows for each repo
+│       └── triggers/
+│           └── release-all.yml           # Bulk release multiple projects
+├── templates/
+│   ├── library-release-caller.yml        # Template for library repositories
+│   └── application-release-caller.yml    # Template for application repositories
 ├── CLAUDE.md
 └── README.md
 ```

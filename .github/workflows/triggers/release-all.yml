@@ -1,0 +1,58 @@
+name: Release Multiple Projects
+
+on:
+  workflow_dispatch:
+    inputs:
+      repositories:
+        description: 'Comma-separated list of repositories to release (e.g., datalogic-rs,dataflow-rs)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (skip publishing)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  parse-repositories:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          # Convert comma-separated list to JSON array
+          IFS=',' read -ra REPOS <<< "${{ inputs.repositories }}"
+          JSON_ARRAY="["
+          for i in "${!REPOS[@]}"; do
+            REPO="${REPOS[$i]}"
+            # Trim whitespace
+            REPO="${REPO// /}"
+            # Determine package type based on repository name
+            if [[ "$REPO" == "Reframe" ]]; then
+              TYPE="application"
+            else
+              TYPE="library"
+            fi
+            JSON_ARRAY="${JSON_ARRAY}{\"repo\":\"GoPlasmatic/${REPO}\",\"type\":\"${TYPE}\"}"
+            if [ $i -lt $((${#REPOS[@]}-1)) ]; then
+              JSON_ARRAY="${JSON_ARRAY},"
+            fi
+          done
+          JSON_ARRAY="${JSON_ARRAY}]"
+          echo "matrix={\"include\":${JSON_ARRAY}}" >> $GITHUB_OUTPUT
+          echo "Matrix: ${JSON_ARRAY}"
+
+  release:
+    needs: parse-repositories
+    strategy:
+      matrix: ${{ fromJson(needs.parse-repositories.outputs.matrix) }}
+      fail-fast: false
+    uses: GoPlasmatic/devops/.github/workflows/rust-release-reusable.yml@main
+    with:
+      repository: ${{ matrix.repo }}
+      package-type: ${{ matrix.type }}
+      dry-run: ${{ inputs.dry_run }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}

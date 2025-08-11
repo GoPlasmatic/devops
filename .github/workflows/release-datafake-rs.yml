@@ -1,0 +1,21 @@
+name: Release datafake-rs
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (skip crates.io publish)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    uses: GoPlasmatic/devops/.github/workflows/rust-release-reusable.yml@main
+    with:
+      repository: GoPlasmatic/datafake-rs
+      package-type: library
+      dry-run: ${{ inputs.dry_run }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}

@@ -48,15 +48,33 @@ jobs:
       - name: Get package info
         id: package_info
         run: |
-          PACKAGE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
-          PACKAGE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          # Check if this is a workspace or single package
+          PACKAGE_COUNT=$(cargo metadata --no-deps --format-version 1 | jq '.packages | length')
+          
+          if [ "$PACKAGE_COUNT" -gt 1 ]; then
+            # For workspace, find the main binary package
+            PACKAGE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.targets[]?.kind[]? == "bin") | .name' | head -n1)
+            PACKAGE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r ".packages[] | select(.name == \"$PACKAGE_NAME\") | .version")
+          else
+            # Single package
+            PACKAGE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
+            PACKAGE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          fi
+          
           echo "name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
           echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
-          echo "Application: $PACKAGE_NAME v$PACKAGE_VERSION"
+          echo "count=$PACKAGE_COUNT" >> $GITHUB_OUTPUT
+          echo "Application: $PACKAGE_NAME v$PACKAGE_VERSION (workspace: $PACKAGE_COUNT packages)"
       
       - name: Build release binaries
         run: |
-          cargo build --release
+          if [ "${{ steps.package_info.outputs.count }}" -gt 1 ]; then
+            # Workspace: build specific package
+            cargo build --release --package ${{ steps.package_info.outputs.name }}
+          else
+            # Single package
+            cargo build --release
+          fi
           echo "Binary built at: target/release/${{ steps.package_info.outputs.name }}"
       
       - name: Configure git

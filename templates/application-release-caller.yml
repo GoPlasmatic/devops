@@ -1,0 +1,21 @@
+# Template workflow to be placed in each application repository's .github/workflows/release.yml
+name: Release Application
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (skip release)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    uses: GoPlasmatic/devops/.github/workflows/rust-release-reusable.yml@main
+    with:
+      repository: ${{ github.repository }}
+      package-type: application
+      dry-run: ${{ inputs.dry_run }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
