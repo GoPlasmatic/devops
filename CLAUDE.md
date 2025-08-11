@@ -41,8 +41,15 @@ All workflows are manually triggered (workflow_dispatch) and include:
    - Creates GitHub releases with proper documentation
    - Publishes to crates.io (libraries only)
    - Packages binaries for applications
+   - Docker image build and push to Azure Container Registry (optional for applications)
 
-4. **Safety Features**:
+4. **Docker Support** (for applications):
+   - Multi-stage Dockerfile generation if not present
+   - Builds optimized Docker images with minimal runtime dependencies
+   - Pushes images with version tag and 'latest' tag to Azure Container Registry
+   - Non-root user execution for security
+
+5. **Safety Features**:
    - Dry run option to test workflow without publishing
    - Version conflict detection
    - Automatic tag management
@@ -55,6 +62,15 @@ These secrets must be configured as organization-level secrets:
 - `GH_PAT` - Personal Access Token with `repo` scope for pushing tags and creating releases
   - Required permissions: `repo` (full control of private repositories)
   - This is needed because the default GITHUB_TOKEN cannot push to other repositories
+
+### Azure Container Registry (for Docker-enabled applications)
+
+For applications that build and push Docker images to Azure Container Registry:
+
+**Required Secrets:**
+- `ACR_URL` - Azure Container Registry URL (e.g., `myregistry.azurecr.io`)
+- `ACR_USERNAME` - Azure Container Registry username (service principal ID or admin username)
+- `ACR_PASSWORD` - Azure Container Registry password or access token
 
 Note: `GITHUB_TOKEN` is auto-provided by GitHub but has limited permissions for cross-repo operations.
 

@@ -17,5 +17,10 @@ jobs:
       package-type: application
       skip-publish: true  # Reframe is not published to crates.io
       dry-run: ${{ inputs.dry_run }}
+      docker-enabled: true
+      docker-image-name: reframe
     secrets:
       GH_PAT: ${{ secrets.GH_PAT }}
+      ACR_URL: ${{ secrets.ACR_URL }}
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}

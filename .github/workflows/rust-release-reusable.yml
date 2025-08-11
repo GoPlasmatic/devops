@@ -22,12 +22,30 @@ on:
         required: false
         type: boolean
         default: false
+      docker-enabled:
+        description: 'Enable Docker image build and push'
+        required: false
+        type: boolean
+        default: false
+      docker-image-name:
+        description: 'Docker image name (defaults to package name)'
+        required: false
+        type: string
     secrets:
       GH_PAT:
         description: 'GitHub Personal Access Token for pushing tags'
         required: true
       CRATES_IO_TOKEN:
         description: 'Token for publishing to crates.io'
+        required: false
+      ACR_URL:
+        description: 'Azure Container Registry URL (e.g., myregistry.azurecr.io)'
+        required: false
+      ACR_USERNAME:
+        description: 'Azure Container Registry username (service principal ID or username)'
+        required: false
+      ACR_PASSWORD:
+        description: 'Azure Container Registry password or token'
         required: false
 
 env:
@@ -181,6 +199,97 @@ jobs:
           
           echo "Release artifacts packaged"
       
+      - name: Login to Azure Container Registry
+        if: inputs.docker-enabled == true && inputs.dry-run != true
+        run: |
+          echo "Logging in to Azure Container Registry: ${{ secrets.ACR_URL }}"
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login "${{ secrets.ACR_URL }}" \
+            --username "${{ secrets.ACR_USERNAME }}" \
+            --password-stdin
+      
+      - name: Create default Dockerfile if needed
+        if: inputs.docker-enabled == true
+        run: |
+          if [ ! -f "Dockerfile" ]; then
+            echo "Creating multi-stage Dockerfile for Rust application"
+            cat > Dockerfile << 'DOCKERFILE_END'
+          # Build stage
+          FROM rust:1.75-slim as builder
+          
+          WORKDIR /app
+          
+          # Install build dependencies
+          RUN apt-get update && apt-get install -y \
+              pkg-config \
+              libssl-dev \
+              && rm -rf /var/lib/apt/lists/*
+          
+          # Copy manifests
+          COPY Cargo.toml Cargo.lock ./
+          
+          # Copy source code
+          COPY src ./src
+          
+          # Build release binary
+          RUN cargo build --release
+          
+          # Runtime stage
+          FROM debian:bookworm-slim
+          
+          # Install runtime dependencies
+          RUN apt-get update && apt-get install -y \
+              ca-certificates \
+              libssl3 \
+              && rm -rf /var/lib/apt/lists/*
+          
+          # Copy the binary from builder
+          COPY --from=builder /app/target/release/${{ steps.package_info.outputs.name }} /usr/local/bin/${{ steps.package_info.outputs.name }}
+          
+          # Create non-root user
+          RUN useradd -m -u 1000 appuser && \
+              chown appuser:appuser /usr/local/bin/${{ steps.package_info.outputs.name }}
+          
+          USER appuser
+          
+          ENTRYPOINT ["/usr/local/bin/${{ steps.package_info.outputs.name }}"]
+          DOCKERFILE_END
+            echo "Created default Dockerfile"
+          else
+            echo "Using existing Dockerfile"
+          fi
+      
+      - name: Build Docker image
+        if: inputs.docker-enabled == true
+        run: |
+          IMAGE_NAME="${{ inputs.docker-image-name || steps.package_info.outputs.name }}"
+          IMAGE_TAG="${{ steps.package_info.outputs.version }}"
+          FULL_IMAGE="${{ secrets.ACR_URL }}/${IMAGE_NAME}:${IMAGE_TAG}"
+          LATEST_IMAGE="${{ secrets.ACR_URL }}/${IMAGE_NAME}:latest"
+          
+          echo "Building Docker image: ${FULL_IMAGE}"
+          
+          # Build the Docker image
+          docker build -t "${FULL_IMAGE}" -t "${LATEST_IMAGE}" .
+          
+          echo "docker_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
+          echo "docker_image_latest=${LATEST_IMAGE}" >> $GITHUB_OUTPUT
+      
+      - name: Push Docker image to Azure Container Registry
+        if: inputs.docker-enabled == true && inputs.dry-run != true
+        run: |
+          IMAGE_NAME="${{ inputs.docker-image-name || steps.package_info.outputs.name }}"
+          IMAGE_TAG="${{ steps.package_info.outputs.version }}"
+          FULL_IMAGE="${{ secrets.ACR_URL }}/${IMAGE_NAME}:${IMAGE_TAG}"
+          LATEST_IMAGE="${{ secrets.ACR_URL }}/${IMAGE_NAME}:latest"
+          
+          echo "Pushing Docker images to Azure Container Registry"
+          docker push "${FULL_IMAGE}"
+          docker push "${LATEST_IMAGE}"
+          
+          echo "✅ Docker images pushed:"
+          echo "  - ${FULL_IMAGE}"
+          echo "  - ${LATEST_IMAGE}"
+      
       - name: Create GitHub Release
         if: steps.tag.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
@@ -285,4 +394,11 @@ jobs:
               echo "📦 Published to crates.io"
             fi
             echo "🏷️ Git tag: v${{ steps.package_info.outputs.version }}"
+            
+            if [ "${{ inputs.docker-enabled }}" = "true" ]; then
+              IMAGE_NAME="${{ inputs.docker-image-name || steps.package_info.outputs.name }}"
+              echo "🐳 Docker images pushed to Azure Container Registry:"
+              echo "   - ${{ secrets.ACR_URL }}/${IMAGE_NAME}:${{ steps.package_info.outputs.version }}"
+              echo "   - ${{ secrets.ACR_URL }}/${IMAGE_NAME}:latest"
+            fi
           fi
