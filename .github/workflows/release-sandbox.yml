@@ -19,6 +19,7 @@ jobs:
       dry-run: ${{ inputs.dry_run }}
       docker-enabled: true
       docker-image-name: sandbox
+      docker-build-args: 'REFRAME_API_URL=http://localhost:3000'
     secrets:
       GH_PAT: ${{ secrets.GH_PAT }}
       ACR_URL: ${{ secrets.ACR_URL }}

@@ -31,6 +31,11 @@ on:
         description: 'Docker image name (required if docker-enabled)'
         required: false
         type: string
+      docker-build-args:
+        description: 'Docker build arguments (e.g., "ARG1=value1 ARG2=value2")'
+        required: false
+        type: string
+        default: ''
     secrets:
       GH_PAT:
         required: true
@@ -97,64 +102,27 @@ jobs:
           echo "Please update the version in package.json before releasing"
           exit 1
 
-      - name: Create Dockerfile if not exists
+      - name: Check Dockerfile exists
         if: inputs.docker-enabled && !inputs.dry-run
         run: |
           if [ ! -f Dockerfile ]; then
-            cat > Dockerfile << 'EOF'
-          # Build stage
-          FROM node:${{ inputs.node-version }}-alpine AS builder
-          
-          WORKDIR /app
-          
-          # Copy package files
-          COPY ${{ inputs.working-directory }}/package*.json ./
-          
-          # Install dependencies
-          RUN npm ci --only=production
-          
-          # Copy application files
-          COPY ${{ inputs.working-directory }}/ ./
-          
-          # Build the application
-          RUN npm run build
-          
-          # Runtime stage
-          FROM node:${{ inputs.node-version }}-alpine
-          
-          # Install dumb-init for proper signal handling
-          RUN apk add --no-cache dumb-init
-          
-          # Create non-root user
-          RUN addgroup -g 1001 -S nodejs && \
-              adduser -S nodejs -u 1001
-          
-          WORKDIR /app
-          
-          # Copy built application from builder
-          COPY --from=builder --chown=nodejs:nodejs /app ./
-          
-          # Switch to non-root user
-          USER nodejs
-          
-          # Expose port (adjust as needed)
-          EXPOSE 3000
-          
-          # Use dumb-init to handle signals properly
-          ENTRYPOINT ["dumb-init", "--"]
-          
-          # Start the application
-          CMD ["npm", "start"]
-          EOF
-            echo "Created Dockerfile"
+            echo "Error: Dockerfile not found in repository root"
+            echo "Please ensure a Dockerfile exists in the repository before enabling Docker builds"
+            exit 1
           else
-            echo "Dockerfile already exists"
+            echo "Dockerfile found, proceeding with build"
           fi
 
       - name: Build Docker image
         if: inputs.docker-enabled && !inputs.dry-run
         run: |
-          docker build -t ${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }} .
+          BUILD_ARGS=""
+          if [ -n "${{ inputs.docker-build-args }}" ]; then
+            for arg in ${{ inputs.docker-build-args }}; do
+              BUILD_ARGS="$BUILD_ARGS --build-arg $arg"
+            done
+          fi
+          docker build $BUILD_ARGS -t ${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }} .
           docker tag ${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }} ${{ inputs.docker-image-name }}:latest
 
       - name: Log in to Azure Container Registry
