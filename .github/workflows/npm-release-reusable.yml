@@ -1,0 +1,217 @@
+name: Reusable NPM Release Workflow
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: 'Target repository (e.g., GoPlasmatic/Sandbox)'
+        required: true
+        type: string
+      working-directory:
+        description: 'Working directory for npm commands'
+        required: false
+        type: string
+        default: 'website'
+      node-version:
+        description: 'Node.js version to use'
+        required: false
+        type: string
+        default: '20'
+      dry-run:
+        description: 'Dry run (skip release)'
+        required: false
+        type: boolean
+        default: false
+      docker-enabled:
+        description: 'Enable Docker image build and push'
+        required: false
+        type: boolean
+        default: false
+      docker-image-name:
+        description: 'Docker image name (required if docker-enabled)'
+        required: false
+        type: string
+    secrets:
+      GH_PAT:
+        required: true
+      ACR_URL:
+        required: false
+      ACR_USERNAME:
+        required: false
+      ACR_PASSWORD:
+        required: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working-directory }}
+        run: npm ci
+
+      - name: Run tests
+        working-directory: ${{ inputs.working-directory }}
+        run: npm test --if-present
+
+      - name: Build application
+        working-directory: ${{ inputs.working-directory }}
+        run: npm run build
+
+      - name: Get version from package.json
+        id: get_version
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git rev-parse "v${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.get_version.outputs.version }} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.get_version.outputs.version }} does not exist"
+          fi
+
+      - name: Fail if tag exists
+        if: steps.check_tag.outputs.exists == 'true'
+        run: |
+          echo "Error: Version ${{ steps.get_version.outputs.version }} already exists as a tag"
+          echo "Please update the version in package.json before releasing"
+          exit 1
+
+      - name: Create Dockerfile if not exists
+        if: inputs.docker-enabled && !inputs.dry-run
+        run: |
+          if [ ! -f Dockerfile ]; then
+            cat > Dockerfile << 'EOF'
+          # Build stage
+          FROM node:${{ inputs.node-version }}-alpine AS builder
+          
+          WORKDIR /app
+          
+          # Copy package files
+          COPY ${{ inputs.working-directory }}/package*.json ./
+          
+          # Install dependencies
+          RUN npm ci --only=production
+          
+          # Copy application files
+          COPY ${{ inputs.working-directory }}/ ./
+          
+          # Build the application
+          RUN npm run build
+          
+          # Runtime stage
+          FROM node:${{ inputs.node-version }}-alpine
+          
+          # Install dumb-init for proper signal handling
+          RUN apk add --no-cache dumb-init
+          
+          # Create non-root user
+          RUN addgroup -g 1001 -S nodejs && \
+              adduser -S nodejs -u 1001
+          
+          WORKDIR /app
+          
+          # Copy built application from builder
+          COPY --from=builder --chown=nodejs:nodejs /app ./
+          
+          # Switch to non-root user
+          USER nodejs
+          
+          # Expose port (adjust as needed)
+          EXPOSE 3000
+          
+          # Use dumb-init to handle signals properly
+          ENTRYPOINT ["dumb-init", "--"]
+          
+          # Start the application
+          CMD ["npm", "start"]
+          EOF
+            echo "Created Dockerfile"
+          else
+            echo "Dockerfile already exists"
+          fi
+
+      - name: Build Docker image
+        if: inputs.docker-enabled && !inputs.dry-run
+        run: |
+          docker build -t ${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }} .
+          docker tag ${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }} ${{ inputs.docker-image-name }}:latest
+
+      - name: Log in to Azure Container Registry
+        if: inputs.docker-enabled && !inputs.dry-run
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.ACR_URL }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Push Docker image to ACR
+        if: inputs.docker-enabled && !inputs.dry-run
+        run: |
+          docker tag ${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }} ${{ secrets.ACR_URL }}/${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }}
+          docker tag ${{ inputs.docker-image-name }}:latest ${{ secrets.ACR_URL }}/${{ inputs.docker-image-name }}:latest
+          docker push ${{ secrets.ACR_URL }}/${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }}
+          docker push ${{ secrets.ACR_URL }}/${{ inputs.docker-image-name }}:latest
+
+      - name: Create and push tag
+        if: '!inputs.dry-run'
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git tag -a "v${{ steps.get_version.outputs.version }}" -m "Release version ${{ steps.get_version.outputs.version }}"
+          git push origin "v${{ steps.get_version.outputs.version }}"
+
+      - name: Create GitHub Release
+        if: '!inputs.dry-run'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          release_name: Release v${{ steps.get_version.outputs.version }}
+          body: |
+            ## Release v${{ steps.get_version.outputs.version }}
+            
+            ### Changes
+            - See commit history for changes
+            
+            ### Docker Image
+            ${{ inputs.docker-enabled && format('Docker image available at: `{0}/{1}:{2}`', secrets.ACR_URL, inputs.docker-image-name, steps.get_version.outputs.version) || 'No Docker image for this release' }}
+          draft: false
+          prerelease: false
+
+      - name: Summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.dry-run }}" == "true" ]; then
+            echo "**DRY RUN MODE** - No actual release was created" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Successfully released version ${{ steps.get_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- Repository: ${{ inputs.repository }}" >> $GITHUB_STEP_SUMMARY
+            echo "- Tag: v${{ steps.get_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ inputs.docker-enabled }}" == "true" ]; then
+              echo "- Docker Image: ${{ secrets.ACR_URL }}/${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
