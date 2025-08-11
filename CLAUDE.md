@@ -49,10 +49,14 @@ All workflows are manually triggered (workflow_dispatch) and include:
 
 ## Required Secrets
 
-These secrets must be configured in the target repositories:
+These secrets must be configured as organization-level secrets:
 
-- `GITHUB_TOKEN` - For git operations and release creation (auto-provided by GitHub)
-- `CRATES_IO_TOKEN` - Organization-level secret for publishing to crates.io (required for library releases)
+- `CRATES_IO_TOKEN` - For publishing to crates.io (required for library releases)
+- `GH_PAT` - Personal Access Token with `repo` scope for pushing tags and creating releases
+  - Required permissions: `repo` (full control of private repositories)
+  - This is needed because the default GITHUB_TOKEN cannot push to other repositories
+
+Note: `GITHUB_TOKEN` is auto-provided by GitHub but has limited permissions for cross-repo operations.
 
 ## Usage Instructions
 

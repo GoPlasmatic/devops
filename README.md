@@ -58,7 +58,8 @@ This repository maintains reusable CI/CD workflows for automated release process
 
 - Rust stable toolchain
 - GitHub organization secrets:
-  - `CRATES_IO_TOKEN` (for crates.io publishing)
+  - `CRATES_IO_TOKEN` - For publishing to crates.io
+  - `GH_PAT` - Personal Access Token with repo permissions for pushing tags
 
 ## License
 

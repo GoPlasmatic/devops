@@ -23,7 +23,7 @@ jobs:
         with:
           repository: GoPlasmatic/Reframe
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
       
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -75,6 +75,12 @@ jobs:
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             git tag -a "$TAG" -m "Release $TAG - Reframe application"
+            
+            # Configure remote with PAT if available
+            if [ -n "${{ secrets.GH_PAT }}" ]; then
+              git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/GoPlasmatic/Reframe.git
+            fi
+            
             git push origin "$TAG"
             echo "Created and pushed tag $TAG"
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -101,7 +107,7 @@ jobs:
         with:
           tag_name: v${{ steps.package_info.outputs.version }}
           name: Reframe v${{ steps.package_info.outputs.version }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           body: |
             ## Reframe v${{ steps.package_info.outputs.version }}
             
@@ -133,7 +139,7 @@ jobs:
           tag_name: v${{ steps.package_info.outputs.version }}
           files: |
             ./reframe-v${{ steps.package_info.outputs.version }}-linux-x86_64.tar.gz
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
       
       - name: Release summary
         run: |

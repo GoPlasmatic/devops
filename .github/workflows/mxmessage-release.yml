@@ -23,7 +23,7 @@ jobs:
         with:
           repository: GoPlasmatic/MXMessage
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
       
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -85,6 +85,12 @@ jobs:
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             git tag -a "$TAG" -m "Release $TAG - MXMessage library"
+            
+            # Configure remote with PAT if available
+            if [ -n "${{ secrets.GH_PAT }}" ]; then
+              git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/GoPlasmatic/MXMessage.git
+            fi
+            
             git push origin "$TAG"
             echo "Created and pushed tag $TAG"
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -111,7 +117,7 @@ jobs:
             - [Repository](https://github.com/GoPlasmatic/MXMessage)
           draft: false
           prerelease: false
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
       
       - name: Publish to crates.io
         if: inputs.dry_run != true && steps.check_crates.outputs.exists != 'true'
