@@ -26,24 +26,14 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
           components: rustfmt, clippy
       
       - name: Cache cargo registry
-        uses: actions/cache@v3
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-dataflow-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-dataflow-
-            ${{ runner.os }}-cargo-
+          key: dataflow
       
       - name: Check code formatting
         run: cargo fmt -- --check
@@ -102,12 +92,10 @@ jobs:
       
       - name: Create GitHub Release
         if: steps.tag.outputs.exists != 'true'
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.package_info.outputs.version }}
-          release_name: dataflow-rs v${{ steps.package_info.outputs.version }}
+          name: dataflow-rs v${{ steps.package_info.outputs.version }}
           body: |
             ## dataflow-rs v${{ steps.package_info.outputs.version }}
             
@@ -123,6 +111,7 @@ jobs:
             - [Repository](https://github.com/GoPlasmatic/dataflow-rs)
           draft: false
           prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Publish to crates.io
         if: inputs.dry_run != true && steps.check_crates.outputs.exists != 'true'
