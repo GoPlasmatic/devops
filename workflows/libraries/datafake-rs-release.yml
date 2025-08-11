@@ -1,0 +1,139 @@
+name: Release datafake-rs
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (skip crates.io publish)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout datafake-rs repository
+        uses: actions/checkout@v4
+        with:
+          repository: GoPlasmatic/datafake-rs
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          components: rustfmt, clippy
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-datafake-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-datafake-
+            ${{ runner.os }}-cargo-
+      
+      - name: Check code formatting
+        run: cargo fmt -- --check
+        
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+      
+      - name: Run tests
+        run: cargo test --all-features
+      
+      - name: Get package info
+        id: package_info
+        run: |
+          PACKAGE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
+          PACKAGE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          echo "name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          echo "Package: $PACKAGE_NAME v$PACKAGE_VERSION"
+      
+      - name: Check if version exists on crates.io
+        id: check_crates
+        run: |
+          CRATE_VERSION=$(curl -s https://crates.io/api/v1/crates/${{ steps.package_info.outputs.name }} | jq -r '.crate.max_version // "none"')
+          echo "Current crates.io version: $CRATE_VERSION"
+          echo "Local version: ${{ steps.package_info.outputs.version }}"
+          
+          if [ "$CRATE_VERSION" = "${{ steps.package_info.outputs.version }}" ]; then
+            echo "Version ${{ steps.package_info.outputs.version }} already exists on crates.io"
+            echo "exists=true" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "Version ${{ steps.package_info.outputs.version }} is new"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Configure git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+      
+      - name: Create and push tag
+        id: tag
+        run: |
+          TAG="v${{ steps.package_info.outputs.version }}"
+          
+          # Check if tag already exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            git tag -a "$TAG" -m "Release $TAG - datafake-rs library"
+            git push origin "$TAG"
+            echo "Created and pushed tag $TAG"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create GitHub Release
+        if: steps.tag.outputs.exists != 'true'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.package_info.outputs.version }}
+          release_name: datafake-rs v${{ steps.package_info.outputs.version }}
+          body: |
+            ## datafake-rs v${{ steps.package_info.outputs.version }}
+            
+            ### Installation
+            Add to your `Cargo.toml`:
+            ```toml
+            [dependencies]
+            ${{ steps.package_info.outputs.name }} = "${{ steps.package_info.outputs.version }}"
+            ```
+            
+            ### Documentation
+            - [API Documentation](https://docs.rs/${{ steps.package_info.outputs.name }})
+            - [Repository](https://github.com/GoPlasmatic/datafake-rs)
+          draft: false
+          prerelease: false
+      
+      - name: Publish to crates.io
+        if: inputs.dry_run != true && steps.check_crates.outputs.exists != 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          cargo publish --no-verify
+          echo "✅ Published ${{ steps.package_info.outputs.name }} v${{ steps.package_info.outputs.version }} to crates.io"
+      
+      - name: Dry run notice
+        if: inputs.dry_run == true
+        run: |
+          echo "🔍 DRY RUN: Skipping crates.io publish"
+          echo "Would have published ${{ steps.package_info.outputs.name }} v${{ steps.package_info.outputs.version }}"
