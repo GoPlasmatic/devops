@@ -15,6 +15,7 @@ jobs:
     with:
       repository: GoPlasmatic/Reframe
       package-type: application
+      skip-publish: true  # Reframe is not published to crates.io
       dry-run: ${{ inputs.dry_run }}
     secrets:
       GH_PAT: ${{ secrets.GH_PAT }}

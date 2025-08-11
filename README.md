@@ -48,10 +48,11 @@ jobs:
     with:
       repository: GoPlasmatic/your-repo
       package-type: library  # or application
+      skip-publish: false  # Set to true for apps not published to crates.io
       dry-run: false
     secrets:
       GH_PAT: ${{ secrets.GH_PAT }}
-      CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+      CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}  # Not needed if skip-publish: true
 ```
 
 ## Features
@@ -97,7 +98,7 @@ Configure as organization-level secrets:
 - **datafake-rs** - Fake data generation
 
 ### Applications
-- **Reframe** - Binary application
+- **Reframe** - Binary application (GitHub releases only, not published to crates.io)
 
 ## Workspace Support
 

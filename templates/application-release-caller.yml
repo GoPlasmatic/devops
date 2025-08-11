@@ -16,6 +16,7 @@ jobs:
     with:
       repository: ${{ github.repository }}
       package-type: application
+      skip-publish: true  # Applications typically don't publish to crates.io
       dry-run: ${{ inputs.dry_run }}
     secrets:
       GH_PAT: ${{ secrets.GH_PAT }}
