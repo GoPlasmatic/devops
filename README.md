@@ -33,6 +33,7 @@ Available workflows:
 - `Release datafake-rs`
 - `Release Reframe`
 - `Release Multiple Projects` (bulk releases)
+- `Release Workspace Packages` (ordered workspace releases)
 
 ### Option 2: Add Workflow to Target Repository
 Copy the appropriate template to target repo's `.github/workflows/release.yml`:
@@ -97,6 +98,17 @@ Configure as organization-level secrets:
 
 ### Applications
 - **Reframe** - Binary application
+
+## Workspace Support
+
+For projects with multiple packages that depend on each other (like `swift-mt-message` and `swift-mt-message-macros`), use the **Release Workspace Packages** workflow:
+
+1. Specify the repository
+2. List packages in dependency order (e.g., `swift-mt-message-macros,swift-mt-message`)
+3. The workflow will:
+   - Publish packages in the specified order
+   - Wait for crates.io indexing between publishes
+   - Create a tag for the final package version
 
 ## Workflow Details
 

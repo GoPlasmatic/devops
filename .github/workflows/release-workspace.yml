@@ -1,0 +1,145 @@
+name: Release Workspace Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'Repository with workspace packages (e.g., GoPlasmatic/SwiftMTMessage)'
+        required: true
+        type: string
+      packages:
+        description: 'Comma-separated list of packages to release in order (e.g., swift-mt-message-macros,swift-mt-message)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (skip crates.io publish)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ inputs.repository }}-workspace
+          cache-on-failure: true
+      
+      - name: Check code formatting
+        run: cargo fmt -- --check
+        
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+      
+      - name: Run tests
+        run: cargo test --all-features
+      
+      - name: Configure git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+      
+      - name: Process packages in order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          IFS=',' read -ra PACKAGES <<< "${{ inputs.packages }}"
+          
+          # Get all package versions
+          METADATA=$(cargo metadata --format-version 1)
+          
+          # Track if we need to create a tag
+          TAG_VERSION=""
+          MAIN_PACKAGE=""
+          
+          for pkg in "${PACKAGES[@]}"; do
+            # Trim whitespace
+            pkg="${pkg// /}"
+            echo "Processing package: $pkg"
+            
+            # Get package version
+            VERSION=$(echo "$METADATA" | jq -r ".packages[] | select(.name == \"$pkg\") | .version")
+            
+            if [ -z "$VERSION" ]; then
+              echo "Package $pkg not found in workspace"
+              exit 1
+            fi
+            
+            echo "Package $pkg version: $VERSION"
+            
+            # Check if already published
+            CRATE_VERSION=$(curl -s https://crates.io/api/v1/crates/$pkg | jq -r '.crate.max_version // "none"')
+            
+            if [ "$CRATE_VERSION" = "$VERSION" ]; then
+              echo "✅ $pkg v$VERSION already published"
+            else
+              if [ "${{ inputs.dry_run }}" = "true" ]; then
+                echo "🔍 DRY RUN: Would publish $pkg v$VERSION"
+              else
+                echo "Publishing $pkg v$VERSION..."
+                cargo publish --package $pkg --no-verify
+                echo "✅ Published $pkg v$VERSION to crates.io"
+                
+                # Wait for crates.io to index
+                echo "Waiting for crates.io to index..."
+                sleep 15
+              fi
+            fi
+            
+            # Track the main package (last in the list) for tagging
+            MAIN_PACKAGE="$pkg"
+            TAG_VERSION="$VERSION"
+          done
+          
+          # Create and push tag for the main package
+          if [ -n "$TAG_VERSION" ] && [ "${{ inputs.dry_run }}" != "true" ]; then
+            TAG="v$TAG_VERSION"
+            
+            # Configure remote with PAT
+            git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ inputs.repository }}.git
+            
+            # Check if tag already exists
+            if git rev-parse "$TAG" >/dev/null 2>&1; then
+              echo "Tag $TAG already exists"
+            else
+              git tag -a "$TAG" -m "Release $TAG - $MAIN_PACKAGE"
+              git push origin "$TAG"
+              echo "Created and pushed tag $TAG"
+              
+              # Create GitHub Release
+              gh release create "$TAG" \
+                --repo "${{ inputs.repository }}" \
+                --title "$MAIN_PACKAGE v$TAG_VERSION" \
+                --notes "Released packages: ${{ inputs.packages }}" \
+                || echo "Release creation failed or already exists"
+            fi
+          fi
+      
+      - name: Summary
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN completed"
+            echo "Packages that would be released: ${{ inputs.packages }}"
+          else
+            echo "✅ Release completed"
+            echo "Released packages: ${{ inputs.packages }}"
+          fi

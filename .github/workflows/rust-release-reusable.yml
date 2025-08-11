@@ -52,6 +52,15 @@ jobs:
           key: ${{ inputs.repository }}
           cache-on-failure: true
       
+      - name: Install cargo-workspaces (if needed)
+        run: |
+          # Check if this is a workspace
+          PACKAGE_COUNT=$(cargo metadata --no-deps --format-version 1 | jq '.packages | length')
+          if [ "$PACKAGE_COUNT" -gt 1 ] && [ "${{ inputs.package-type }}" = "library" ]; then
+            echo "Installing cargo-workspaces for better dependency handling..."
+            cargo install cargo-workspaces || echo "cargo-workspaces installation failed, will use fallback method"
+          fi
+      
       - name: Check code formatting
         run: cargo fmt -- --check
         
@@ -68,25 +77,36 @@ jobs:
           PACKAGE_COUNT=$(cargo metadata --no-deps --format-version 1 | jq '.packages | length')
           
           if [ "$PACKAGE_COUNT" -gt 1 ]; then
-            # For workspace, find the appropriate package
+            # For workspace, find all publishable packages in dependency order
+            echo "Workspace with $PACKAGE_COUNT packages detected"
+            
+            # Get all publishable packages
+            PUBLISHABLE_PACKAGES=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != false) | .name' | tr '\n' ' ')
+            echo "Publishable packages: $PUBLISHABLE_PACKAGES"
+            
+            # For now, we'll handle the main package (this will be improved for dependency ordering)
             if [ "${{ inputs.package-type }}" = "application" ]; then
               # Find binary package
               PACKAGE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.targets[]?.kind[]? == "bin") | .name' | head -n1)
             else
-              # Find publishable library package
-              PACKAGE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != false) | .name' | head -n1)
+              # Find main library package (usually doesn't have -macros, -derive, etc. suffix)
+              PACKAGE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != false) | select(.name | test("-macros$|-derive$|-core$") | not) | .name' | head -n1)
             fi
             PACKAGE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r ".packages[] | select(.name == \"$PACKAGE_NAME\") | .version")
+            
+            # Store all publishable packages for later use
+            echo "publishable_packages=$PUBLISHABLE_PACKAGES" >> $GITHUB_OUTPUT
           else
             # Single package
             PACKAGE_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
             PACKAGE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+            echo "publishable_packages=$PACKAGE_NAME" >> $GITHUB_OUTPUT
           fi
           
           echo "name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
           echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
           echo "count=$PACKAGE_COUNT" >> $GITHUB_OUTPUT
-          echo "Package: $PACKAGE_NAME v$PACKAGE_VERSION (workspace: $PACKAGE_COUNT packages)"
+          echo "Main package: $PACKAGE_NAME v$PACKAGE_VERSION (workspace: $PACKAGE_COUNT packages)"
       
       - name: Check if version exists on crates.io
         if: inputs.package-type == 'library'
@@ -191,13 +211,59 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
           if [ "${{ steps.package_info.outputs.count }}" -gt 1 ]; then
-            # Workspace: specify package name
-            cargo publish --package ${{ steps.package_info.outputs.name }} --no-verify
+            echo "Publishing workspace packages..."
+            
+            # First, try to publish all workspace packages in dependency order
+            # This uses cargo-workspaces if available, otherwise falls back to manual publish
+            if command -v cargo-workspaces &> /dev/null; then
+              echo "Using cargo-workspaces for publishing"
+              cargo workspaces publish --from-git --no-verify --yes
+            else
+              echo "Publishing packages individually"
+              
+              # Get packages in dependency order using cargo metadata
+              PACKAGES_JSON=$(cargo metadata --format-version 1)
+              
+              # Function to publish a package and its dependencies
+              publish_with_deps() {
+                local pkg=$1
+                local version=$(echo "$PACKAGES_JSON" | jq -r ".packages[] | select(.name == \"$pkg\") | .version")
+                
+                # Check if already published
+                CRATE_VERSION=$(curl -s https://crates.io/api/v1/crates/$pkg | jq -r '.crate.max_version // "none"')
+                if [ "$CRATE_VERSION" = "$version" ]; then
+                  echo "$pkg v$version already published"
+                  return 0
+                fi
+                
+                # Try to publish
+                echo "Publishing $pkg v$version..."
+                if cargo publish --package $pkg --no-verify; then
+                  echo "✅ Published $pkg v$version"
+                  # Wait for crates.io to index
+                  sleep 10
+                else
+                  echo "⚠️ Failed to publish $pkg v$version (might have dependencies)"
+                  return 1
+                fi
+              }
+              
+              # Try to publish packages, starting with those that might be dependencies
+              for pkg in ${{ steps.package_info.outputs.publishable_packages }}; do
+                # Skip if it's the main package (we'll do it last)
+                if [ "$pkg" != "${{ steps.package_info.outputs.name }}" ]; then
+                  publish_with_deps "$pkg" || true
+                fi
+              done
+              
+              # Finally publish the main package
+              publish_with_deps "${{ steps.package_info.outputs.name }}"
+            fi
           else
             # Single package
             cargo publish --no-verify
+            echo "✅ Published ${{ steps.package_info.outputs.name }} v${{ steps.package_info.outputs.version }} to crates.io"
           fi
-          echo "✅ Published ${{ steps.package_info.outputs.name }} v${{ steps.package_info.outputs.version }} to crates.io"
       
       - name: Release summary
         run: |
