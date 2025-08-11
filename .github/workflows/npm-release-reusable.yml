@@ -95,12 +95,17 @@ jobs:
             echo "Tag v${{ steps.get_version.outputs.version }} does not exist"
           fi
 
-      - name: Fail if tag exists
+      - name: Handle existing tag
         if: steps.check_tag.outputs.exists == 'true'
         run: |
-          echo "Error: Version ${{ steps.get_version.outputs.version }} already exists as a tag"
-          echo "Please update the version in package.json before releasing"
-          exit 1
+          if [ "${{ inputs.docker-enabled }}" == "true" ]; then
+            echo "Warning: Version ${{ steps.get_version.outputs.version }} already exists as a tag"
+            echo "Proceeding with Docker image build and push only"
+          else
+            echo "Error: Version ${{ steps.get_version.outputs.version }} already exists as a tag"
+            echo "Please update the version in package.json before releasing"
+            exit 1
+          fi
 
       - name: Check Dockerfile exists
         if: inputs.docker-enabled && !inputs.dry-run
@@ -142,15 +147,29 @@ jobs:
           docker push ${{ secrets.ACR_URL }}/${{ inputs.docker-image-name }}:latest
 
       - name: Create and push tag
-        if: '!inputs.dry-run'
+        if: '!inputs.dry-run && steps.check_tag.outputs.exists != ''true'''
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git tag -a "v${{ steps.get_version.outputs.version }}" -m "Release version ${{ steps.get_version.outputs.version }}"
           git push origin "v${{ steps.get_version.outputs.version }}"
 
-      - name: Create GitHub Release
+      - name: Check if release exists
+        id: check_release
         if: '!inputs.dry-run'
+        run: |
+          if gh release view "v${{ steps.get_version.outputs.version }}" --repo ${{ inputs.repository }} >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Release v${{ steps.get_version.outputs.version }} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Release v${{ steps.get_version.outputs.version }} does not exist"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Create GitHub Release
+        if: '!inputs.dry-run && steps.check_release.outputs.exists != ''true'''
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
@@ -167,6 +186,24 @@ jobs:
             ${{ inputs.docker-enabled && format('Docker image available at: `{0}/{1}:{2}`', secrets.ACR_URL, inputs.docker-image-name, steps.get_version.outputs.version) || 'No Docker image for this release' }}
           draft: false
           prerelease: false
+
+      - name: Update existing release
+        if: '!inputs.dry-run && steps.check_release.outputs.exists == ''true'' && inputs.docker-enabled'
+        run: |
+          echo "Release already exists, updating with Docker image information"
+          BODY="## Release v${{ steps.get_version.outputs.version }}
+
+### Changes
+- See commit history for changes
+
+### Docker Image
+Docker image available at: \`${{ secrets.ACR_URL }}/${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }}\`"
+          
+          gh release edit "v${{ steps.get_version.outputs.version }}" \
+            --repo ${{ inputs.repository }} \
+            --notes "$BODY"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Summary
         run: |
