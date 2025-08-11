@@ -1,0 +1,26 @@
+name: Release Sandbox
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (skip release)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    uses: GoPlasmatic/devops/.github/workflows/rust-release-reusable.yml@main
+    with:
+      repository: GoPlasmatic/Sandbox
+      package-type: application
+      skip-publish: true  # Sandbox is not published to crates.io
+      dry-run: ${{ inputs.dry_run }}
+      docker-enabled: true
+      docker-image-name: sandbox
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      ACR_URL: ${{ secrets.ACR_URL }}
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
