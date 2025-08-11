@@ -10,17 +10,17 @@ This is the Plasmatic DevOps repository that maintains GitHub Action workflows f
 
 ```
 devops/
-├── workflows/
-│   ├── rust-library-release.yml      # Base template for Rust library releases
-│   ├── libraries/                    # Library-specific workflows
-│   │   ├── swiftmtmessage-release.yml
-│   │   ├── mxmessage-release.yml
-│   │   ├── dataflow-rs-release.yml
-│   │   ├── datalogic-rs-release.yml
-│   │   └── datafake-rs-release.yml
-│   └── applications/                  # Application-specific workflows
-│       └── reframe-release.yml
-└── CLAUDE.md
+├── .github/
+│   └── workflows/
+│       ├── rust-library-release.yml      # Base template for Rust library releases
+│       ├── swiftmtmessage-release.yml    # SwiftMTMessage library workflow
+│       ├── mxmessage-release.yml         # MXMessage library workflow
+│       ├── dataflow-rs-release.yml       # dataflow-rs library workflow
+│       ├── datalogic-rs-release.yml      # datalogic-rs library workflow
+│       ├── datafake-rs-release.yml       # datafake-rs library workflow
+│       └── reframe-release.yml           # Reframe application workflow
+├── CLAUDE.md
+└── README.md
 ```
 
 ## Workflow Features

@@ -6,6 +6,19 @@ Centralized GitHub Action workflows for releasing Rust crates across GoPlasmatic
 
 This repository maintains reusable CI/CD workflows for automated release processes, ensuring consistent quality checks and deployment procedures across all Plasmatic Rust projects.
 
+## Repository Structure
+
+```
+.github/workflows/
+├── rust-library-release.yml      # Base template
+├── swiftmtmessage-release.yml    # SwiftMTMessage library
+├── mxmessage-release.yml         # MXMessage library
+├── dataflow-rs-release.yml       # dataflow-rs library
+├── datalogic-rs-release.yml      # datalogic-rs library
+├── datafake-rs-release.yml       # datafake-rs library
+└── reframe-release.yml           # Reframe application
+```
+
 ## Workflows
 
 ### Libraries (Published to crates.io)
@@ -29,10 +42,17 @@ This repository maintains reusable CI/CD workflows for automated release process
 
 ## Quick Start
 
-1. Copy workflow to target repo's `.github/workflows/`
+### Option 1: Copy to Target Repository
+1. Copy the appropriate workflow file from `.github/workflows/` to target repo's `.github/workflows/`
 2. Ensure `CRATES_IO_TOKEN` org secret is available
 3. Update version in `Cargo.toml`
 4. Trigger workflow manually from Actions tab
+
+### Option 2: Trigger from This Repository
+1. Navigate to the Actions tab in this repository
+2. Select the appropriate workflow for your library/application
+3. Click "Run workflow"
+4. The workflow will checkout the target repository and perform the release
 
 ## Requirements
 
