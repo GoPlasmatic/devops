@@ -191,17 +191,19 @@ jobs:
         if: '!inputs.dry-run && steps.check_release.outputs.exists == ''true'' && inputs.docker-enabled'
         run: |
           echo "Release already exists, updating with Docker image information"
-          BODY="## Release v${{ steps.get_version.outputs.version }}
-
-### Changes
-- See commit history for changes
-
-### Docker Image
-Docker image available at: \`${{ secrets.ACR_URL }}/${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }}\`"
+          cat > release-notes.md << EOF
+          ## Release v${{ steps.get_version.outputs.version }}
+          
+          ### Changes
+          - See commit history for changes
+          
+          ### Docker Image
+          Docker image available at: \`${{ secrets.ACR_URL }}/${{ inputs.docker-image-name }}:${{ steps.get_version.outputs.version }}\`
+          EOF
           
           gh release edit "v${{ steps.get_version.outputs.version }}" \
             --repo ${{ inputs.repository }} \
-            --notes "$BODY"
+            --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
