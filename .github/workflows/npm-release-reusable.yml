@@ -159,7 +159,32 @@ jobs:
         id: check_release
         if: '!inputs.dry-run'
         run: |
+          # Try multiple methods to detect if release exists
+          RELEASE_EXISTS=false
+          
+          # Method 1: Try gh release view
           if gh release view "v${{ steps.get_version.outputs.version }}" --repo ${{ inputs.repository }} >/dev/null 2>&1; then
+            RELEASE_EXISTS=true
+            echo "Found release using 'gh release view'"
+          fi
+          
+          # Method 2: Check via gh release list if view failed
+          if [ "$RELEASE_EXISTS" = "false" ]; then
+            if gh release list --repo ${{ inputs.repository }} | grep -q "^v${{ steps.get_version.outputs.version }}\s"; then
+              RELEASE_EXISTS=true
+              echo "Found release using 'gh release list'"
+            fi
+          fi
+          
+          # Method 3: Check via GitHub API directly
+          if [ "$RELEASE_EXISTS" = "false" ]; then
+            if gh api "repos/${{ inputs.repository }}/releases/tags/v${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
+              RELEASE_EXISTS=true
+              echo "Found release using GitHub API"
+            fi
+          fi
+          
+          if [ "$RELEASE_EXISTS" = "true" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "::warning::Release v${{ steps.get_version.outputs.version }} already exists - skipping release creation"
           else
@@ -193,15 +218,42 @@ jobs:
       - name: Handle release creation failure
         if: ${{ !inputs.dry-run && steps.check_release.outputs.exists == 'false' && steps.create_release.outcome == 'failure' }}
         run: |
-          echo "::warning::Failed to create release for existing tag v${{ steps.get_version.outputs.version }}"
-          echo "This might happen if:"
-          echo "  - The release was partially created in a previous run"
-          echo "  - There's a permission issue with the GitHub token"
-          echo "Attempting to verify if release exists now..."
+          echo "::warning::Failed to create release for tag v${{ steps.get_version.outputs.version }}"
+          echo "This typically happens when a release already exists from a previous run."
+          echo "Attempting to verify if release exists now using multiple methods..."
+          
+          RELEASE_FOUND=false
+          
+          # Method 1: Try gh release view
           if gh release view "v${{ steps.get_version.outputs.version }}" --repo ${{ inputs.repository }} >/dev/null 2>&1; then
-            echo "::notice::Release exists for v${{ steps.get_version.outputs.version }} (may have been created in a previous run)"
+            RELEASE_FOUND=true
+            echo "✓ Found release using 'gh release view'"
+          fi
+          
+          # Method 2: Check via gh release list
+          if [ "$RELEASE_FOUND" = "false" ]; then
+            if gh release list --repo ${{ inputs.repository }} | grep -q "^v${{ steps.get_version.outputs.version }}\s"; then
+              RELEASE_FOUND=true
+              echo "✓ Found release using 'gh release list'"
+            fi
+          fi
+          
+          # Method 3: Check via GitHub API directly
+          if [ "$RELEASE_FOUND" = "false" ]; then
+            if gh api "repos/${{ inputs.repository }}/releases/tags/v${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
+              RELEASE_FOUND=true
+              echo "✓ Found release using GitHub API"
+            fi
+          fi
+          
+          if [ "$RELEASE_FOUND" = "true" ]; then
+            echo "::notice::Release already exists for v${{ steps.get_version.outputs.version }}"
+            echo "The workflow can continue normally. The release was likely created in a previous run."
           else
-            echo "::error::Unable to create release for v${{ steps.get_version.outputs.version }}"
+            echo "::error::Unable to create or find release for v${{ steps.get_version.outputs.version }}"
+            echo "This is unexpected. Please check:"
+            echo "  - GitHub token permissions (needs repo scope)"
+            echo "  - Repository name is correct: ${{ inputs.repository }}"
             exit 1
           fi
         env:
