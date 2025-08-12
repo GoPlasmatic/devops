@@ -153,6 +153,7 @@ jobs:
           git config user.email github-actions@github.com
           git tag -a "v${{ steps.get_version.outputs.version }}" -m "Release version ${{ steps.get_version.outputs.version }}"
           git push origin "v${{ steps.get_version.outputs.version }}"
+          echo "Tag v${{ steps.get_version.outputs.version }} created and pushed successfully"
 
       - name: Check if release exists
         id: check_release
@@ -171,6 +172,8 @@ jobs:
       - name: Create GitHub Release
         if: ${{ !inputs.dry-run && steps.check_release.outputs.exists == 'false' }}
         uses: actions/create-release@v1
+        continue-on-error: true
+        id: create_release
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         with:
@@ -186,6 +189,23 @@ jobs:
             ${{ inputs.docker-enabled && format('Docker image available at: `{0}/{1}:{2}`', secrets.ACR_URL, inputs.docker-image-name, steps.get_version.outputs.version) || 'No Docker image for this release' }}
           draft: false
           prerelease: false
+      
+      - name: Handle release creation failure
+        if: ${{ !inputs.dry-run && steps.check_release.outputs.exists == 'false' && steps.create_release.outcome == 'failure' }}
+        run: |
+          echo "::warning::Failed to create release for existing tag v${{ steps.get_version.outputs.version }}"
+          echo "This might happen if:"
+          echo "  - The release was partially created in a previous run"
+          echo "  - There's a permission issue with the GitHub token"
+          echo "Attempting to verify if release exists now..."
+          if gh release view "v${{ steps.get_version.outputs.version }}" --repo ${{ inputs.repository }} >/dev/null 2>&1; then
+            echo "::notice::Release exists for v${{ steps.get_version.outputs.version }} (may have been created in a previous run)"
+          else
+            echo "::error::Unable to create release for v${{ steps.get_version.outputs.version }}"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Update existing release
         if: ${{ !inputs.dry-run && steps.check_release.outputs.exists == 'true' && inputs.docker-enabled }}
