@@ -265,12 +265,21 @@ jobs:
           IMAGE_TAG="${{ steps.package_info.outputs.version }}"
           FULL_IMAGE="${{ secrets.ACR_URL }}/${IMAGE_NAME}:${IMAGE_TAG}"
           LATEST_IMAGE="${{ secrets.ACR_URL }}/${IMAGE_NAME}:latest"
-          
+
           echo "Building Docker image: ${FULL_IMAGE}"
-          
-          # Build the Docker image
-          docker build -t "${FULL_IMAGE}" -t "${LATEST_IMAGE}" .
-          
+
+          # Check if Dockerfile expects PACKAGE_URL build arg (for Reframe)
+          if grep -q "ARG PACKAGE_URL" Dockerfile 2>/dev/null; then
+            echo "Dockerfile requires PACKAGE_URL build argument"
+            # Default package URL for Reframe SWIFT CBPR package
+            PACKAGE_URL="${PACKAGE_URL:-https://github.com/GoPlasmatic/reframe-package-swift-cbpr/releases/download/v2.1.0/reframe-swift-cbpr-v2.1.0.zip}"
+            echo "Using PACKAGE_URL: ${PACKAGE_URL}"
+            docker build --build-arg PACKAGE_URL="${PACKAGE_URL}" -t "${FULL_IMAGE}" -t "${LATEST_IMAGE}" .
+          else
+            echo "Building without PACKAGE_URL argument"
+            docker build -t "${FULL_IMAGE}" -t "${LATEST_IMAGE}" .
+          fi
+
           echo "docker_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
           echo "docker_image_latest=${LATEST_IMAGE}" >> $GITHUB_OUTPUT
       
